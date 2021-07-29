@@ -323,7 +323,336 @@ member1 == member2; //같다.
 
           ![https://i.imgur.com/7osczKZ.png](https://i.imgur.com/7osczKZ.png)
 
-  ### 참고
 
-    - 김영한님의 자바 ORM 표준 JPA 프로그래밍 - 기본편 강의
-    - 김영한님의 자바 ORM 표준 JPA 프로그래밍 책
+# 2. JPA 시작하기
+
+# 프로젝트 생성
+
+# 1. H2 데이터베이스 설치와 실행
+
+- 최고의 실습용 DB
+- 가볍다.(1.5M)
+- 웹용 쿼리툴 제공MySQL, Oracle 데이터베이스 시뮬레이션 기능
+- 시퀀스, AUTO INCREMENT 기능 지원
+- 터미널창에 입력하기
+
+```
+brew install h2
+h2 -web
+```
+
+- 터미널에 실행된 url 확인
+
+![https://i.imgur.com/8p1HOmm.png](https://i.imgur.com/8p1HOmm.png)
+
+- [http://localhost:8082/login.do](http://localhost:8082/login.do) 주소 입력하기
+- 서버 모드로 변경하기
+
+![https://i.imgur.com/PZNM4Wr.png](https://i.imgur.com/PZNM4Wr.png)
+
+![https://i.imgur.com/vvPJX4z.png](https://i.imgur.com/vvPJX4z.png)
+
+# 2. 라이브러리와 프로젝트 구조
+
+**maven으로 선택하기**
+
+![https://i.imgur.com/PENr0EH.png](https://i.imgur.com/PENr0EH.png)
+
+![https://i.imgur.com/DU4Q42u.png](https://i.imgur.com/DU4Q42u.png)
+
+**pom.xml에 라이브러리 추가**
+
+- 라이브러리 버전 선택 시
+    - [https://spring.io](https://spring.io) → Projects → Spring Boot → Learn에서 내가 사용할 스프링 부트 버전을 보고  Reference Doc 문서 → Dependency Versions에서 버전 검색
+
+```xml
+<dependencies>
+    <!-- JPA 하이버네이트 -->
+    <dependency>
+        <groupId>org.hibernate</groupId>
+        <artifactId>hibernate-entitymanager</artifactId>
+        <version>5.3.10.Final</version>
+    </dependency>
+    <!-- H2 데이터베이스 -->
+    <dependency>
+        <groupId>com.h2database</groupId>
+        <artifactId>h2</artifactId>
+        <version>1.4.200</version>
+    </dependency>
+</dependencies>
+```
+
+dependencies에 들어온 것을 확인할 수 있다.
+
+![https://i.imgur.com/zWiKj3F.png](https://i.imgur.com/zWiKj3F.png)
+
+- hibernate-core:5.3.10.Final
+    - hibernate에 꼭 필요한 라이브러리
+- javax.persistence-api:2.2
+    - 인터페이스인 JPA의 구현체로 hibernate 선택했는데, 앞으로 사용할 JPA 인터페이스가 모아져있다.
+
+# 3. persistence.xml 설정하기
+
+- 위치 resources/META-INF/persistence.xml
+
+![https://i.imgur.com/XDflLkc.png](https://i.imgur.com/XDflLkc.png)
+
+- persistence-unit name으로 이름 지정
+- javax.persistence로 시작 : JPA 표준 속성
+- hibernate.dialect : 하이버네이트 속성, 데이터베이스 방언 설정
+    - H2 : org.hibernate.dialect.H2Dialect
+    - Oracle 10g : org.hibernate.dialect.Oracle10gDialect
+    - MySQL : org.hibernate.dialect.MySQL5InnoDBDialect
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<persistence version="2.2"
+             xmlns="http://xmlns.jcp.org/xml/ns/persistence" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/persistence http://xmlns.jcp.org/xml/ns/persistence/persistence_2_2.xsd">
+    <persistence-unit name="hello">
+        <properties>
+            <!-- 필수 속성 -->
+            <property name="javax.persistence.jdbc.driver" value="org.h2.Driver"/>
+            <property name="javax.persistence.jdbc.user" value="sa"/>
+            <property name="javax.persistence.jdbc.password" value=""/>
+            <property name="javax.persistence.jdbc.url" value="jdbc:h2:~/test"/>
+            <property name="hibernate.dialect" value="org.hibernate.dialect.H2Dialect"/>
+            <!-- 옵션 -->
+            <property name="hibernate.show_sql" value="true"/>
+            <property name="hibernate.format_sql" value="true"/>
+            <property name="hibernate.use_sql_comments" value="true"/>
+            <!--<property name="hibernate.hbm2ddl.auto" value="create" />-->
+        </properties>
+    </persistence-unit>
+</persistence>
+```
+
+### 데이터베이스 방언
+
+- 방언: SQL 표준을 지키지 않는 특정 데이터베이스만의 고유한 기능
+- JPA는 특정 데이터베이스에 종속 X
+- 각각의 데이터베이스가 제공하는 SQL 문법과 함수는 조금씩 다름
+    - 가변 문자: MySQL은 VARCHAR, Oracle은 VARCHAR2
+    - 문자열을 자르는 함수: SQL 표준은 SUBSTRING(), Oracle은 SUBSTR()
+    - 페이징: MySQL은 LIMIT , Oracle은 ROWNUM
+
+![https://i.imgur.com/kuL3CWs.png](https://i.imgur.com/kuL3CWs.png)
+
+# 4. 애플리케이션 개발
+
+## 1) JPA 구동 방식
+
+![https://i.imgur.com/oyR9PQk.png](https://i.imgur.com/oyR9PQk.png)
+
+JPA는 Persistence 라는 class에서 시작을 하는데, 우리가 설정해준 persistence.xml을 읽어서 EntityManagerFactory 라는 class를 만든다. 그리고 필요할 때마다 EntityManager를 찍어낸다.
+
+### (1) INSERT
+
+**JpaMain**
+
+아래와 같이 작성하는 것이 정석이지만 스프링이 전부 해준다.
+
+```java
+public class JpaMain {
+
+    public static void main(String[] args) {
+        EntityManagerFactory emf = Persistence.createEntityManagerFactory("hello");
+
+        EntityManager em = emf.createEntityManager();
+
+        EntityTransaction tx = em.getTransaction();
+        tx.begin();
+
+        try {
+            Member member = new Member();
+            member.setId(2L);
+            member.setName("HelloB");
+
+            em.persist(member);
+
+            tx.commit();
+        } catch (Exception e) {
+            tx.rollback();
+        } finally {
+            em.close();
+        }
+        emf.close();
+    }
+}
+```
+
+**table 생성**
+
+![https://i.imgur.com/Mnc1AES.png](https://i.imgur.com/Mnc1AES.png)
+
+**Member**
+
+```java
+@Entity
+public class Member {
+
+    @Id
+    private Long id;
+    private String name;
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+}
+```
+
+결과 화면
+
+![https://i.imgur.com/hxqIrEK.png](https://i.imgur.com/hxqIrEK.png)
+
+persistence.xml에서 설정해준 옵션들 때문에 쿼리가 콘솔창에 출력된다.
+
+```java
+<property name="hibernate.show_sql" value="true"/> // 쿼리 출력
+<property name="hibernate.format_sql" value="true"/> // 보기좋게
+<property name="hibernate.use_sql_comments" value="true"/> /* insert hellojpa.Member*/
+```
+
+DB에 저장된 모습
+
+![https://i.imgur.com/a9VhWnv.png](https://i.imgur.com/a9VhWnv.png)
+
+- 작성한 코드와 테이블 정보가 다를 경우
+    - @Table(name = "MEMBER")
+    - @Column(name = "name")
+
+    ```java
+    @Entity
+    @Table(name = "MEMBER")
+    public class Member {
+
+        @Id
+        private Long id;
+
+        @Column(name = "name")
+        private String name;
+
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+    }
+    ```
+
+### (2) SELECT
+
+**JpaMain**
+
+```java
+Member findMember = em.find(Member.class, 1L);
+```
+
+결과 화면
+
+![https://i.imgur.com/iNL01d3.png](https://i.imgur.com/iNL01d3.png)
+
+### (3) DELETE
+
+**JpaMain**
+
+```java
+Member findMember = em.find(Member.class, 2L);
+
+em.remove(findMember);
+```
+
+결과 화면
+
+![https://i.imgur.com/Bhse8oJ.png](https://i.imgur.com/Bhse8oJ.png)
+
+테이블을 확인하면 삭제된 것을 볼 수 있다.
+
+![https://i.imgur.com/L40wJWn.png](https://i.imgur.com/L40wJWn.png)
+
+### (4) UPDATE
+
+**JpaMain**
+
+```java
+Member findMember = em.find(Member.class, 1L);
+findMember.setName("HelloJPA");
+```
+
+결과 화면
+
+![https://i.imgur.com/sArXl9X.png](https://i.imgur.com/sArXl9X.png)
+
+테이블을 확인하면 수정된 것을 볼 수 있다.
+
+![https://i.imgur.com/aGgsuUJ.png](https://i.imgur.com/aGgsuUJ.png)
+
+- 엔티티를 수정한 후에 수정 내용을 반영하려면 em.update() 같은 메소드(없음)를 호출해야 할 것 같지만 단순히 엔티티의 값만 변경하면 된다.
+- JPA는 어떤 엔티티가  변경되었는지 추적하는 기능을 갖고 있다.
+- 따라서 findMember.setName("HelloJPA")처럼 엔티티의 값만 변경하면 UPDATE SQL을 생성해서 데이터베이스에 값을 변경한다.
+
+## 2) 주의해야 할 점
+
+- 엔티티 매니저 팩토리는 하나만 생성해서 애플리케이션 전체에서 공유
+- 엔티티 매니저는 쓰레드간에 공유X (사용하고 버려야 한다)
+- JPA의 모든 데이터 변경은 트랜잭션 안에서 실행
+
+## 3) JPQL
+
+하나 이상의 회원 목록을 조회하려면?
+
+- JPQL로 전체 회원 검색
+    - Member 객체가 대상이 된다.
+
+    ```java
+    List<Member> result = em.createQuery("select m from Member", Member.class)
+                        .getResultList();
+    ```
+
+![https://i.imgur.com/5p5GnYL.png](https://i.imgur.com/5p5GnYL.png)
+
+- JPQL로 ID가 2 이상인 회원만 검색
+- JPQL로 이름이 같은 회원만 검색
+- 페이징 처리 메소드
+
+    ```java
+    List<Member> result = em.createQuery("select m from Member as m", Member.class)
+            .setFirstResult(5)
+            .setMaxResults(8)
+            .getResultList();
+    ```
+
+- JPA는 SQL을 추상화한 JPQL이라는 객체 지향 쿼리 언어 제공
+- SQL과 문법 유사, SELECT, FROM, WHERE, GROUP BY, HAVING, JOIN 지원
+- JPQL은 엔티티 객체를 대상으로 쿼리
+- SQL은 데이터베이스 테이블을 대상으로 쿼리
+- 테이블이 아닌 객체를 대상으로 검색하는 객체 지향 쿼리
+- SQL을 추상화해서 특정 데이터베이스 SQL에 의존X
+- JPQL을 한마디로 정의하면 객체 지향 SQL
+
+### 참고
+
+- 김영한님의 자바 ORM 표준 JPA 프로그래밍 - 기본편 강의
+- 김영한님의 자바 ORM 표준 JPA 프로그래밍 책
