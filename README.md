@@ -652,6 +652,824 @@ findMember.setName("HelloJPA");
 - SQL을 추상화해서 특정 데이터베이스 SQL에 의존X
 - JPQL을 한마디로 정의하면 객체 지향 SQL
 
+# 3. 영속성 관리 - 내부 동작 방식
+
+### JPA에서 가장 중요한 2가지
+
+- 객체와 관계형 데이터베이스 매핑하기(Object Relational Mapping)
+- 영속성 컨텍스트(JPA 내부 동작 방식)
+
+# 1. 엔티티 매니저 팩토리와 엔티티 매니저
+
+![https://i.imgur.com/nCz85Wu.png](https://i.imgur.com/nCz85Wu.png)
+
+- 엔티티 매니저 팩토리
+    - 엔티티 매니저를 만드는 공장이다.
+    - 고객의 요청이 올 때마다 엔티티 매니저를 생성한다.
+    - 여러 스레드가 동시에 접근해도 안전하므로 서로 다른 스레드 간에 공유해도 된다.
+- 엔티티 매니저
+    - 내부적으로 데이터베이스 커넥션을 사용해서 DB를 사용한다.
+    - 여러 스레드가 동시에 접근하면 동시성 문제가 발생하므로 스레드 간에 절대 공유하면 안 된다.
+
+# 2. **영속성 컨텍스트**
+
+- 엔티티를 영구 저장하는 환경이라는 뜻. 논리적인 개념
+- EntityManager.persist(entity);
+    - 객체를 DB에 저장한다는 뜻이 아니라, 영속성 컨텍스트를 통해서 엔티티를 영속화한다는 뜻이다.
+    - 더 정확하게는 엔티티를 영속성 컨텍스트에 저장한다.
+- 엔티티 매니저를 생성할 때 하나 만들어진다.
+- 엔티티 매니저를 통해서 영속성 컨텍스트에 접근한다.
+
+# 3. 엔티티의 생명주기
+
+![https://i.imgur.com/KKamXt4.png](https://i.imgur.com/KKamXt4.png)
+
+## 1) 비영속(new/transient)
+
+영속성 컨텍스트와 전혀 관계가 없는 **새로운** 상태
+
+![https://i.imgur.com/PsEQYyx.png](https://i.imgur.com/PsEQYyx.png)
+
+```java
+//객체를 생성한 상태(비영속)
+Member member = new Member();
+member.setId("member1");
+member.setUsername("회원1");
+```
+
+## 2) 영속(managed)
+
+영속성 컨텍스트에 **관리되는** 상태
+
+![https://i.imgur.com/dhIxZSs.png](https://i.imgur.com/dhIxZSs.png)
+
+```java
+//객체를 생성한 상태(비영속)
+Member member = new Member();
+member.setId("member1");
+member.setUsername(“회원1”);
+
+EntityManager em = emf.createEntityManager();
+em.getTransaction().begin();
+
+//객체를 저장한 상태(영속)
+em.persist(member);
+```
+
+- em.persist(member)을 할 때는 DB에 저장되지 않는다.
+
+```java
+public class JpaMain {
+
+    public static void main(String[] args) {
+        EntityManagerFactory emf = Persistence.createEntityManagerFactory("hello");
+
+        EntityManager em = emf.createEntityManager();
+
+        EntityTransaction tx = em.getTransaction();
+        tx.begin();
+
+        try {
+            //비영속
+            Member member = new Member();
+            member.setId(100L);
+            member.setName("HelloJPA");
+
+            //영속
+            System.out.println("===BEFORE===");
+            em.persist(member);
+            System.out.println("===AFTER===");
+
+            tx.commit();
+        } catch (Exception e) {
+            tx.rollback();
+        } finally {
+            em.close();
+        }
+        emf.close();
+    }
+}
+```
+
+실행하면 ===AFTER=== 다음에 INSERT 쿼리가 처리된다.
+
+![https://i.imgur.com/bX9y1xx.png](https://i.imgur.com/bX9y1xx.png)
+
+- 영속상태가 된다고 해서 바로 DB에 쿼리가 반영되는 것이 아니라, 트랜잭션을 커밋하는 순간에 DB에 쿼리가 반영된다.
+
+## 3) 준영속(detached)
+
+영속성 컨텍스트에 저장되었다가 **분리**된 상태
+
+```java
+//회원 엔티티를 영속성 컨텍스트에서 분리, 준영속 상태
+em.detach(member);
+```
+
+## 4) 삭제(removed)
+
+데이터베이스에서 **삭제한** 상태
+
+```java
+//객체를 삭제한 상태(삭제)
+ em.remove(member);
+```
+
+# 4. 영속성 컨텍스트의 특징
+
+### 영속성 컨텍스트와 식별자 값
+
+- 영속성 컨텍스트는 엔티티를 식별자 값으로 구분한다.
+- 따라서 영속 상태는 식별자 값이 반드시 있어야 한다.
+
+### 영속성 컨텍스트와 데이터베이스 저장
+
+- JPA는 트랜잭션을 커밋하는 순간 영속성 컨텍스트에 새로 저장된 엔티티를 데이터베이스에 반영하는데, 이를 플러시(flush)라 한다.
+
+### 영속성 컨텍스트의 장점
+
+- 1차 캐시
+- 동일성(identity) 보장
+- 트랜잭션을 지원하는 쓰기 지연(transactional write-behind)
+- 변경 감지(Dirty Checking)
+- 지연 로딩(Lazy Loading)
+
+## 1) 엔티티 조회, 1차 캐시
+
+- 영속성 컨텍스트는 내부에 캐시를 가지고 있는데 이것을 1차 캐시라 한다.
+
+![https://i.imgur.com/XrczKVV.png](https://i.imgur.com/XrczKVV.png)
+
+```java
+//객체를 생성한 상태(비영속)
+Member member = new Member();
+member.setId("member1");
+member.setUsername(“회원1”);
+
+//객체를 저장한 상태(영속)
+em.persist(member);
+```
+
+- 위의 코드를 실행하면 회원 엔티티를 데이터베이스가 아닌 1차 캐시에 저장한다.
+- 1차 캐시의 키는 식별자 값이다.
+
+### **엔티티 조회**
+
+```java
+Member findMember = em.find(Member.class, "member1");
+
+//EntityManager.find() 메소드 정의
+public <T> find(Class<T> entityClass, Object primaryKey);
+```
+
+- find() 메소드를 보면 첫 번째 파라미터는 엔티티 클래스의 타입이고, 두 번째는 조회할 엔티티의 식별자 값이다.
+- 조회할 엔티티의 식별자 값은 primaryKey만 가능하다.
+
+  ![https://i.imgur.com/QBFbmIp.png](https://i.imgur.com/QBFbmIp.png)
+
+```java
+Member findMember2 = em.find(Member.class, "member2");
+```
+
+- em.find()를 호출하면 먼저 1차 캐시에서 엔티티를 찾고 만약 찾는 엔티티가 1차 캐시에 없으면 데이터베이스에서 조회한다.
+- member2가 1차 캐시에 없으므로 엔티티를 생성해서 1차 캐시에 저장한다.(영속 상태가 됨)
+- 조회한 엔티티를 반환한다.
+
+직접 코드를 통해 확인해보자.
+
+```java
+
+//비영속
+Member member = new Member();
+member.setId(101L);
+member.setName("HelloJPA");
+
+//영속
+System.out.println("===BEFORE===");
+em.persist(member);
+System.out.println("===AFTER===");
+
+Member findMember = em.find(Member.class, 101L);
+
+System.out.println("findMember.id = " + findMember.getId());
+System.out.println("findMember.name = " + findMember.getName());
+
+tx.commit();
+```
+
+실행한 결과
+
+![https://i.imgur.com/hMyCsqa.png](https://i.imgur.com/hMyCsqa.png)
+
+SELECT 쿼리가 처리되지 않았지만 id와 name 값이 출력됐다. → em.persist() 를 통해 1차 캐시에 저장이 되고, 그 값을 불러왔기 때문이다.
+
+만약 같은 값을 두 번 불러올 때는 처음에는 데이터베이스에서 불러오지만 두 번째는 1차 캐시에서 불러오기 때문에 처음 한 번만 쿼리가 출력될 것이다.
+
+```java
+Member findMember1 = em.find(Member.class, 101L);
+Member findMember2 = em.find(Member.class, 101L);
+```
+
+실행한 결과
+
+![https://i.imgur.com/QOgCEak.png](https://i.imgur.com/QOgCEak.png)
+
+SELECT 쿼리가 한 번만 처리된다.
+
+- 조회할 때 메모리에 있는 1차 캐시에서 바로 불러온다는 성능상의 이점은 있지만, 현업에서 큰 도움은 되지 않는다.
+- 1차 캐시는 데이터베이스 한 트랜잭션 안에서만 효과가 있다. 쉽게 말하면, 고객의 요청이 들어오고 비지니스가 끝나버리면 영속성 컨텍스트를 지우기 때문에 1차 캐시도 날라간다.
+
+### 영속 엔티티의 동일성 보장
+
+```java
+Member findMember1 = em.find(Member.class, 101L);
+Member findMember2 = em.find(Member.class, 101L);
+
+System.out.println("result = " + (findMember1 == findMember2));
+```
+
+영속성 컨텍스트는 1차 캐시에 있는 같은 엔티티 인스턴스를 반환하기 때문에 둘은 같은 인스턴스고, result = true 가 출력된다.
+
+## 2) 엔티티 등록
+
+![https://i.imgur.com/dRC8V2h.png](https://i.imgur.com/dRC8V2h.png)
+
+- 엔티티 매니저는 트랜잭션을 커밋하기 직전까지 데이터베이스에 엔티티를 저장하지 않고, 내부 쿼리 저장소에 INSERT SQL을 쌓아둔다.
+
+![https://i.imgur.com/PZUFxuM.png](https://i.imgur.com/PZUFxuM.png)
+
+- 트랜잭션을 커밋할 때 모아둔 쿼리를 데이터베이스에 보내는데, 이것을 트랜잭션을 지원하는 쓰기 지연이라 한다.
+
+코드를 통해 확인해보자.
+
+```java
+Member member1 = new Member(150L, "A");
+Member member2 = new Member(160L, "B");
+
+em.persist(member1);
+em.persist(member2);
+
+System.out.println("=================");
+
+tx.commit();
+```
+
+실행한 결과
+
+![https://i.imgur.com/TQFkPvS.png](https://i.imgur.com/TQFkPvS.png)
+
+System.out이 출력된 후, tx.commit() 할 때 INSERT 쿼리가 데이터베이스에 반영됐다.
+
+persistence.xml에 다음과 같이 옵션을 주면 여러 개의 구문을 여러 번 network 를 통해 보내는 것이 아니라 합쳐서 1개로 보내기에 성능 개선을 할 수 있다.
+
+```xml
+<property name="hibernate.jdbc.batch_size" value="10"/>
+```
+
+## 3) 엔티티 수정
+
+- JPA로 엔티티를 수정할 때는 단순히 엔티티를 조회해서 데이터만 변경하면 된다.
+
+```java
+Member member = em.find(Member.class, 150L);
+member.setName("ZZZZZ");
+
+System.out.println("=================");
+
+tx.commit();
+```
+
+실행한 결과
+
+![https://i.imgur.com/eaIGAsg.png](https://i.imgur.com/eaIGAsg.png)
+
+자바 컬렉션을 다루듯이 값만 바꿨는데 UPDATE 쿼리가 처리됐다.
+
+- 엔티티의 변경사항을 데이터베이스에 자동으로 반영하는 기능을 **변경 감지**(dirty checking)라 한다.
+
+![https://i.imgur.com/uvGbgns.png](https://i.imgur.com/uvGbgns.png)
+
+- 변경 감지 매커니즘
+    - 트랜잭션을 커밋하면 엔티티 매니저 내부에서 먼저 플러시가 호출되는데, 플러시 시점에 스냅샷과 엔티티를 비교해서 변경된 엔티티를 찾는다.
+        - JPA는 엔티티를 영속성 컨텍스트에 보관할 때, 최초 상태를 복사해서 저장해두는데 이것을 스냅샷이라 한다.
+    - 변경된 엔티티가 있으면 수 정 쿼리를 생성해서 쓰기 지연 SQL 저장소에 보낸다.
+    - 쓰기 지연 저장소의 SQL을 데이터베이스에 보낸다.
+    - 데이터베이스 트랜잭션을 커밋한다.
+
+## 4) 엔티티 삭제
+
+- 커밋 시점에 DELETE 쿼리가 실행된다.
+
+```java
+//삭제 대상 엔티티 조회
+Member memberA = em.find(Member.class, “memberA");
+
+em.remove(memberA); //엔티티 삭제
+```
+
+# 5. 플러시
+
+- 영속성 컨텍스트의 변경 내용을 데이터베이스에 반영하는 것
+- 영속성 컨텍스트를 비우는 것이 아님
+- 1차 캐시를 지우는 것은 아님
+- 트랜잭션이라는 작업 단위가 중요 → 커밋 직전에만 동기화하면 됨
+
+## 1) 플러시 발생 시
+
+- 변경 감지(dirty checking) 동작
+- 수정된 엔티티를 쓰기 지연 SQL 저장소에 등록
+- 쓰기 지연 SQL 저장소의 쿼리(**등록, 수정, 삭제** 쿼리)를 데이터베이스에 전송
+
+## 2) 영속성 컨텍스트를 플러시 하는 방법
+
+### (1) em.flush() : 직접 호출
+
+```java
+Member member = new Member(200L, "member200");
+em.persist(member);
+
+em.flush();
+
+System.out.println("=================");
+
+tx.commit();
+```
+
+실행한 결과
+
+![https://i.imgur.com/9g83se2.png](https://i.imgur.com/9g83se2.png)
+
+commit하기 전 em.fluch()가 실행될 때 쿼리가 DB에 반영됐다.
+
+### (2) 트랜잭션 커밋 : 플러시 자동 호출
+
+### (3) JPQL 쿼리 실행 : 플러시 자동 호출
+
+```java
+em.persist(memberA);
+em.persist(memberB);
+em.persist(memberC);
+
+//중간에 JPQL 실행
+query = em.createQuery("select m from Member m", Member.class);
+List<Member> members= query.getResultList();
+```
+
+JPQL 실행할 때 플러시가 자동 호출되지만, 만약 Member 테이블이 아닌 전혀 다른 테이블을 SELECT 한다면, 'FlushModeType.COMMIT' 이라는 플러시 모드 옵션을 통해 커밋할 때만 플러시를 호출하게 변경할 수 있다.
+
+```java
+em.setFlushMode(FlushModeType.COMMIT)
+```
+
+기본값은 'FlushModeType.AUTO' 이다.
+
+# 6. 준영속 상태
+
+- 영속 → 준영속
+- 영속 상태의 엔티티가 영속성 컨텍스트에서 분리(detached)된 것
+- 영속성 컨텍스트가 제공하는 기능을 사용 못함
+
+## 1) **영속 상태의 엔티티를 준영속 상태로 만드는 방법**
+
+### (1) em.detach(entity) : 특정 엔티티만 준영속 상태로 전환
+
+```java
+Member member = em.find(Member.class, 150L);
+member.setName("AAAAA");
+
+em.detach(member);
+
+System.out.println("=================");
+
+tx.commit();
+```
+
+실행한 결과
+
+![https://i.imgur.com/S45YULa.png](https://i.imgur.com/S45YULa.png)
+
+SELECT 쿼리만 처리되고 UPDATE는 처리되지 않았다.
+
+### (2) em.clear() : 영속성 컨텍스트를 완전히 초기화
+
+```java
+Member member = em.find(Member.class, 150L);
+member.setName("AAAAA");
+
+em.clear();
+
+Member member2 = em.find(Member.class, 150L);
+
+System.out.println("=================");
+
+tx.commit();
+```
+
+실행한 결과
+
+![https://i.imgur.com/3Xxu1GP.png](https://i.imgur.com/3Xxu1GP.png)
+
+em.clear()로 인해 영속성 컨텍스트가 초기화됐기 때문에 SELECT 쿼리를 데이터베이스에 한 번 더 처리한다.
+
+### (3) em.close() : 영속성 컨텍스트를 종료
+
+# 4. 엔티티 매핑
+
+### JPA의 다양한 매핑 어노테이션
+
+- 객체와 테이블 매핑: **@Entity, @Table**
+- 필드와 컬럼 매핑: **@Column**
+- 기본 키 매핑: **@Id**
+- 연관관계 매핑: **@ManyToOne,@JoinColumn**
+
+# 1. 객체와 테이블 매핑
+
+## 1) @Entity
+
+- @Entity가 붙은 클래스는 JPA가 관리, 엔티티라 한다.
+- JPA를 사용해서 테이블과 매핑할 클래스는 **@Entity** 필수다.
+- 주의
+    - **기본 생성자 필수**(파라미터가 없는 public 또는 protected 생성자)
+        - JPA가 엔티티 객체를 생성할 때 기본 생성자를 사용하기 때문이다.
+    - final 클래스, enum, interface, inner 클래스 사용할 수 없다.
+    - 저장한 필드에 final 사용할 수 없다.
+- 속성 : name
+
+    ```java
+    @Entity(name = "Member")
+    public class Member {
+    }
+    ```
+
+    - JPA에서 사용할 엔티티 이름을 지정한다.
+    - 기본값: 클래스 이름을 그대로 사용(예: Member)
+    - 같은 클래스 이름이 없으면 가급적 기본값을 사용한다.
+
+## 2) @Table
+
+- 엔티티와 매핑할 테이블을 지정한다.
+- 속성
+    - name : 매핑할 테이블 이름
+    - catalog : 데이터베이스 catalog 매핑
+    - schema : 데이터베이스 schema 매핑
+    - uniqueConstraints(DDL) : DDL 생성 시에 유니크 제약 조건 생성
+
+# 2. 데이터베이스 스키마 자동 생성
+
+- DDL(Data Definition Language, 테이블 생성, 삭제)을 애플리케이션 실행 시점에 자동 생성
+- 테이블중심 → 객체중심
+- 데이터베이스 방언을 활용해서 데이터베이스에 맞는 적절한 DDL 생성
+- 이렇게 **생성된 DDL은 개발 장비에서만 사용**
+- 생성된 DDL은 운영서버에서는 사용하지 않거나, 적절히 다듬은 후 사용
+
+**persistence.xml에서 다음과 같은 속성 부여하기**
+
+```xml
+<property name="hibernate.hbm2ddl.auto" value="create" />
+```
+
+![https://i.imgur.com/dmDP2D1.png](https://i.imgur.com/dmDP2D1.png)
+
+[제목 없음](https://www.notion.so/b6855219dfb244db9609cee6db767de3)
+
+### 주의
+
+- 운영 장비에는 절대 create, create-drop, update 사용하면 안된다.
+- 개발 초기 단계는 create 또는 update
+- 테스트 서버는 update 또는 validate
+- 스테이징과 운영 서버는 validate 또는 none
+
+# 3. DDL 생성 기능
+
+- 이런 기능들은 단지 DDL을 자동 생성할 때만 사용되고 JPA의 실행 로직에는 영향을 주지 않는다.
+
+## 1) 데이터베이스 컬럼명 바꾸기
+
+```java
+@Column(name = "USERNAME")
+private String name;
+```
+
+## 2) not null 제약 조건, 문자의 크기 조건 추가하기
+
+```java
+@Column(nullable = false, length = 10)
+private String name;
+```
+
+## 3) 유니크 제약조건 추가하기
+
+```java
+@Entity(name = "Member")
+@Table(uniqueConstraints = {@UniqueConstraint(
+        name="NAME_AGE_UNIQUE", 
+        columnNames={"NAME", "AGE"} )})
+public class Member {
+}
+```
+
+생성된 DDL
+
+```sql
+AlTER TABEL MEMBER
+	ADD CONSTRAINT NAME_AGE_UNIQUE UNIQUE (NAME, AGE)
+```
+
+# 4. 필드와 컬럼 매핑
+
+```java
+@Entity
+public class Member {
+
+    @Id
+    private Long id;
+
+    @Column(name = "name")
+    private String username;
+
+    private Integer age;
+
+    @Enumerated(EnumType.STRING)
+    private RoleType roleType;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date createdDate;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date lastModifiedDate;
+
+    @Lob
+    private String description;
+
+    @Transient
+    private int temp;
+
+    public Member() {
+
+    }
+}
+```
+
+실행한 결과
+
+![https://i.imgur.com/ViJPDMU.png](https://i.imgur.com/ViJPDMU.png)
+
+### 매핑 어노테이션 정리
+
+![https://i.imgur.com/dU1yS7X.png](https://i.imgur.com/dU1yS7X.png)
+
+## 1) @Column
+
+![https://i.imgur.com/qKPmEew.png](https://i.imgur.com/qKPmEew.png)
+
+## 2) @Enumerated
+
+- 자바 Enum 타입을 매핑할 때 사용
+
+![https://i.imgur.com/wKWNoFS.png](https://i.imgur.com/wKWNoFS.png)
+
+- EnumType.ORDINAL 사용할 때 주의해야 하는 이유
+    - 데이터베이스에 숫자 0, 1, 2... 로 차례로 들어가는데, 만약 Enum 클래스에서 Enum 순서가 바뀐다면 이미 들어간 데이터베이스와 중복된다.
+
+```java
+@Enumerated(EnumType.STRING)
+private RoleType roleType;
+```
+
+## 3) @Temporal
+
+- 날짜 타입(java.util.Date, java.util.Calendar)을 매핑할 때 사용
+- 참고로 LocalDate, LocalDateTime을 사용할 때는 생략 가능(최신 하이버네이트 지원)
+
+![https://i.imgur.com/5GtxsPV.png](https://i.imgur.com/5GtxsPV.png)
+
+```java
+@Temporal(TemporalType.TIMESTAMP)
+private Date createdDate;
+
+@Temporal(TemporalType.TIMESTAMP)
+private Date lastModifiedDate;
+```
+
+## 4) @Lob
+
+- 데이터베이스 BLOB, CLOB 타입과 매핑
+- @Lob에는 지정할 수 있는 속성이 없다.
+- 매핑하는 필드 타입이 문자면 CLOB 매핑, 나머지는 BLOB 매핑
+    - CLOB: String, char[], java.sql.CLOB
+    - BLOB: byte[], java.sql. BLOB
+
+```java
+@Lob
+private String description;
+```
+
+## 5) @Transient
+
+- 필드 매핑X
+- 데이터베이스에 저장X, 조회X
+- 주로 메모리상에서만 임시로 어떤 값을 보관하고 싶을 때 사용
+
+```java
+@Transient
+private Integer temp;
+```
+
+# 5. 기본 키 매핑
+
+### 기본 키 매핑 어노테이션
+
+- @Id
+- @GeneratedValue
+
+```java
+@Id @GeneratedValue(strategy = GenerationType.AUTO) 
+private Long id;
+```
+
+### 기본 키 매핑 방법
+
+- 직접 할당: **@Id만 사용**
+- 자동 생성(**@GeneratedValue**)
+    - **IDENTITY**: 데이터베이스에 위임, MYSQL
+    - **SEQUENCE**: 데이터베이스 시퀀스 오브젝트 사용, ORACLE
+        - @SequenceGenerator 필요
+    - **TABLE**: 키 생성용 테이블 사용, 모든 DB에서 사용
+        - @TableGenerator 필요
+    - **AUTO**: 방언에 따라 자동 지정, 기본값
+
+## 1) 기본 키 직접 할당 전략
+
+- 기본 키를 직접 할당하려면 다음 코드와 같이 @Id로 매핑하면 된다.
+
+```java
+@Id
+@Column(name = "id")
+private String id;
+```
+
+- 기본 키 직접 할당 전략은 em.persist() 로 엔티티를 저장하기 전에 애플리케이션에서 기본 키를 직접 할당하는 방법이다.
+
+```java
+Member member = new Member();
+member.setId("ID_A");
+member.setUsername("C");
+
+em.persist(member);
+```
+
+## 2) IDENTITY 전략
+
+### (1) 특징
+
+- 기본 키 생성을 데이터베이스에 위임
+- 주로 MySQL, PostgreSQL, SQL Server, DB2에서 사용 (예: MySQL의 AUTO_ INCREMENT)
+- JPA는 보통 트랜잭션 커밋 시점에 INSERT SQL 실행
+- AUTO_ INCREMENT는 데이터베이스에 INSERT SQL을 실행한 이후에 ID 값을 알 수 있음
+- IDENTITY 전략은 commit하는 시점이 아니라, em.persist() 시점에 즉시 INSERT SQL 실행하고 DB에서 식별자를 조회
+- 즉시 실행되기 때문에 INSERT 쿼리를 모아서 할 수 없다.
+
+### (2) 매핑
+
+**H2의 AUTO_INCREMENT 기능 수행하는 예제**
+
+persistence.xml
+
+```xml
+<property name="hibernate.dialect" value="org.hibernate.dialect.H2Dialect"/>
+```
+
+Member
+
+```java
+@Id
+@GeneratedValue(strategy = GenerationType.IDENTITY)
+private String id;
+
+@Column(name = "name", nullable = false)
+private String username;
+```
+
+실행한 결과
+
+![https://i.imgur.com/uIVPrkX.png](https://i.imgur.com/uIVPrkX.png)
+
+id varchar(255) generated by default as identity 가 처리된다.
+
+**mySQL의 AUTO_INCREMENT 기능 수행하는 예제**
+
+persistence.xml
+
+```xml
+<property name="hibernate.dialect" value="org.hibernate.dialect.MySQL5Dialect"/>
+```
+
+실행한 결과
+
+![https://i.imgur.com/N0D8OGl.png](https://i.imgur.com/N0D8OGl.png)
+
+id varchar(255) not null auto_increment 로 바껴서 처리된다.
+
+두 번 실행하면 id값이 자동으로 생성되어 데이터베이서에 순서대로 저장된다.
+
+![https://i.imgur.com/QVUuCQ5.png](https://i.imgur.com/QVUuCQ5.png)
+
+## 3) SEQUENCE 전략
+
+### (1) 특징
+
+- 데이터베이스 시퀀스는 유일한 값을 순서대로 생성하는 특별한 데이터베이스 오브젝트(예: 오라클 시퀀스)
+- 오라클, PostgreSQL, DB2, H2 데이터베이스에서 사용 가능
+- INSERT 쿼리가 처리되기 전에 시퀀스값을 불러와서 id에 저장한 후 영속성 컨텍스트에 올림
+
+### (2) 매핑
+
+Member
+
+```java
+@Entity
+public class Member {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    private Long id;
+
+    @Column(name = "name", nullable = false)
+    private String username;
+```
+
+실행한 결과
+
+![https://i.imgur.com/qDMtMk6.png](https://i.imgur.com/qDMtMk6.png)
+
+**테이블마다 시퀀스를 따로 관리하고 싶을 때**
+
+Member
+
+```java
+@Entity
+@SequenceGenerator(
+        name = "MEMBER_SEQ_GENERATOR",
+        sequenceName = "MEMBER_SEQ") //매핑할 데이터베이스 시퀀스 이름
+public class Member {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, 
+						generator = "MEMBER_SEQ_GENERATOR")
+    private Long id;
+```
+
+실행한 결과
+
+![https://i.imgur.com/k98yjab.png](https://i.imgur.com/k98yjab.png)
+
+**@SequenceGenerator**
+
+![https://i.imgur.com/hovqKaS.png](https://i.imgur.com/hovqKaS.png)
+
+## 4) TABLE 전략
+
+- 키 생성 전용 테이블을 하나 만들고 여기에 이름과 값으로 사용할 컬럼을 만들어 데이터베이스 시퀀스를 흉내내는 전략
+- 장점 : 모든 데이터베이스에 적용 가능
+- 단점 : 성능
+
+### (1) 매핑
+
+```java
+@Entity
+@TableGenerator(
+            name = "MEMBER_SEQ_GENERATOR",
+            table = "MY_SEQUENCES",
+            pkColumnValue = "MEMBER_SEQ", allocationSize = 1)
+    public class Member {
+    @Id
+    @GeneratedValue(strategy = GenerationType.TABLE,
+            generator = "MEMBER_SEQ_GENERATOR")
+    private Long id;
+```
+
+실행한 결과
+
+![https://i.imgur.com/L1fhNnU.png](https://i.imgur.com/L1fhNnU.png)
+
+데이터베이스
+
+![https://i.imgur.com/e4u0Pq1.png](https://i.imgur.com/e4u0Pq1.png)
+
+![https://i.imgur.com/X1jcv74.png](https://i.imgur.com/X1jcv74.png)
+
+**@TableGenerator**
+
+![https://i.imgur.com/lkOEhKO.png](https://i.imgur.com/lkOEhKO.png)
+
+## 5) 권장하는 식별자 전략
+
+- 기본 키 제약 조건 : null 아님, 유일, 변하면 안된다.
+- 미래까지 이 조건을 만족하는 자연키는 찾기 어렵다. 대리키(대체키)를 사용하자.
+- 예를 들어 주민등록번호도 기본 키로 적절하기 않다.
+- 권장 : Long형 + 대체키(sequence) + 키 생성전략 사용
+
+
 ### 참고
 
 - 김영한님의 자바 ORM 표준 JPA 프로그래밍 - 기본편 강의
